@@ -30,9 +30,8 @@ typedef struct {
 } buffer_cache_context_t;
 
 typedef struct {
-	unsigned long phys_addr;
 	void *virt_addr;
-	int bufsize;
+	size_t bufsize;
 } hardware_buffer_t;
 
 typedef struct cinfo_context_type {

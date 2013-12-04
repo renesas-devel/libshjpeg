@@ -185,7 +185,6 @@ boolean shjpeg_start_decompress(j_decompress_ptr cinfo)
 	shjpeg_pixelformat format;
 	cinfo_context_t *ctx = get_cinfo_context((j_common_ptr) cinfo);
 	shjpeg_context_t *context = NULL;
-	shjpeg_internal_t *data;
 
 	if (!ctx)
 		ERREXIT(cinfo, SHJMSG_INVALID_CONTEXT);
@@ -210,21 +209,17 @@ boolean shjpeg_start_decompress(j_decompress_ptr cinfo)
 	context->width = cinfo->output_width;
 	context->height = cinfo->output_height;
 	context->pitch = context->width * cinfo->out_color_components;
-	context->pitch = (context->pitch + 7) & ~7;	// 8 byte align
-	data = context->internal_data;
 
-	ctx->hardware_buf.bufsize = context->pitch * context->height;
-	ctx->hardware_buf.virt_addr = uiomux_malloc(data->uiomux, UIOMUX_JPU,
-		ctx->hardware_buf.bufsize, 1);
-
+	format = get_shjpeg_pixelformat(cinfo->out_color_space);
+	ctx->hardware_buf.virt_addr =
+		shjpeg_malloc(context, format, context->width,
+			      context->height, context->pitch,
+			      &ctx->hardware_buf.bufsize);
 	if (!ctx->hardware_buf.virt_addr) {
 		TRACEMS(cinfo, 1, SHJMSG_NO_MEMORY);
 		TRACEMS(cinfo, 1, SHJMSG_LIBJPEG_MODE);
 		return libjpeg_hooks.jpeg_start_decompress(cinfo);
 	}
-
-	ctx->hardware_buf.phys_addr = uiomux_virt_to_phys(data->uiomux,
-		UIOMUX_JPU, ctx->hardware_buf.virt_addr);
 
 	context->mode444 = 0;
 
@@ -245,8 +240,6 @@ boolean shjpeg_start_decompress(j_decompress_ptr cinfo)
 	context->sops = &ctx->sops;
 
 	context->priv_data = (void *) ctx;
-
-	format = get_shjpeg_pixelformat(cinfo->out_color_space);
 
 	if (shjpeg_decode_run(context, format,
 			      ctx->hardware_buf.virt_addr, context->width,
@@ -304,8 +297,8 @@ boolean shjpeg_finish_decompress(j_decompress_ptr cinfo)
 
 	context = ctx->context;
 	data = context->internal_data;
-	uiomux_free(data->uiomux, UIOMUX_JPU, ctx->hardware_buf.virt_addr,
-		ctx->hardware_buf.bufsize);
+	shjpeg_free(context, ctx->hardware_buf.virt_addr,
+		    ctx->hardware_buf.bufsize);
 	memset(&ctx->hardware_buf, 0, sizeof (ctx->hardware_buf));
 
 	if (context->sops->finalize) {
@@ -350,9 +343,9 @@ static boolean is_jpu_supported_compress(j_compress_ptr cinfo, boolean wat)
 
 void shjpeg_start_compress(j_compress_ptr cinfo, boolean write_all_tables)
 {
+	shjpeg_pixelformat format;
 	cinfo_context_t *ctx = get_cinfo_context((j_common_ptr) cinfo);
 	shjpeg_context_t *context = NULL;
-	shjpeg_internal_t *data;
 
 	if (!ctx)
 		ERREXIT(cinfo, SHJMSG_INVALID_CONTEXT);
@@ -374,21 +367,18 @@ void shjpeg_start_compress(j_compress_ptr cinfo, boolean write_all_tables)
 	context->width = cinfo->image_width;
 	context->height = cinfo->image_height;
 	context->pitch = context->width * cinfo->input_components;
-	context->pitch = (context->pitch + 7) & ~7;	// 8 byte align
-	data = context->internal_data;
 
-	ctx->hardware_buf.bufsize = context->pitch * context->height;
-	ctx->hardware_buf.virt_addr = uiomux_malloc(data->uiomux, UIOMUX_JPU,
-		ctx->hardware_buf.bufsize, 1);
-
+	format = get_shjpeg_pixelformat(cinfo->in_color_space);
+	ctx->hardware_buf.virt_addr =
+		shjpeg_malloc(context, format, context->width,
+			      context->height, context->pitch,
+			      &ctx->hardware_buf.bufsize);
 	if (!ctx->hardware_buf.virt_addr) {
 		TRACEMS(cinfo, 1, SHJMSG_NO_MEMORY);
 		TRACEMS(cinfo, 1, SHJMSG_LIBJPEG_MODE);
 		libjpeg_hooks.jpeg_start_compress(cinfo, write_all_tables);
 		return;
 	}
-	ctx->hardware_buf.phys_addr = uiomux_virt_to_phys(data->uiomux,
-		UIOMUX_JPU, ctx->hardware_buf.virt_addr);
 
 	context->libjpeg_disabled = 1;
 
@@ -450,8 +440,8 @@ void shjpeg_finish_compress(j_compress_ptr cinfo)
 		ERREXIT(cinfo, SHJMSG_COMPRESS_ERR);
 	}
 	data = context->internal_data;
-	uiomux_free(data->uiomux, UIOMUX_JPU, ctx->hardware_buf.virt_addr,
-		ctx->hardware_buf.bufsize);
+	shjpeg_free(context, ctx->hardware_buf.virt_addr,
+		    ctx->hardware_buf.bufsize);
 	if (context->sops->finalize) {
 		context->sops->finalize(context->priv_data);
 	}
@@ -500,10 +490,8 @@ void shjpeg_abort(j_common_ptr cinfo)
 							    jpeg_decomp);
 		}
 		if (ctx->hardware_buf.bufsize) {
-			shjpeg_internal_t *data = context->internal_data;
-			uiomux_free(data->uiomux, UIOMUX_JPU,
-				ctx->hardware_buf.virt_addr,
-				ctx->hardware_buf.bufsize);
+			shjpeg_free(context, ctx->hardware_buf.virt_addr,
+				    ctx->hardware_buf.bufsize);
 			memset(&ctx->hardware_buf, 0,
 					sizeof (ctx->hardware_buf));
 		}
@@ -525,10 +513,8 @@ void shjpeg_destroy(j_common_ptr cinfo)
 			shjpeg_decode_shutdown(context);
 		}
 		if (ctx->hardware_buf.bufsize) {
-			shjpeg_internal_t *data = context->internal_data;
-			uiomux_free(data->uiomux, UIOMUX_JPU,
-				ctx->hardware_buf.virt_addr,
-				ctx->hardware_buf.bufsize);
+			shjpeg_free(context, ctx->hardware_buf.virt_addr,
+				    ctx->hardware_buf.bufsize);
 			memset(&ctx->hardware_buf, 0,
 					sizeof (ctx->hardware_buf));
 		}

@@ -287,9 +287,7 @@ decode_hw(shjpeg_internal_t * data,
 
 	free_frame_buffer_virtual(&mdata);
 
-#if defined(HAVE_SHVIO)
 end:
-#endif
 	/* Unlocking JPU using uiomux_unlock */
 	if (uiomux_unlock(data->uiomux, UIOMUX_JPU)) {
 		D_PERROR("libshjpeg: Could not unlock JPEG engine!");

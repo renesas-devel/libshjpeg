@@ -157,7 +157,7 @@ shjpeg_malloc(shjpeg_context_t * context,
 
 	data = context->internal_data;
 	vaddr = uiomux_malloc(data->uiomux, UIOMUX_JPU, req_size, 8);
-	if (*allocated_size)
+	if (allocated_size)
 		*allocated_size = req_size;
 
 	return vaddr;
